@@ -6,6 +6,7 @@ import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager'
 import wantAgent from '@ohos.app.ability.wantAgent';
 import common from '@ohos.app.ability.common';
 import Want from '@ohos.app.ability.Want';
+import window from '@ohos.window';
 import { BusinessError } from '@ohos.base';
 import { Log } from '../common/Logger';
 import { listMedia, isVideo, isAudio, extOf, humanMs, copyByFd } from '../common/MediaLib';
@@ -24,6 +25,9 @@ struct Index {
   @State bgInfo: string = '';
   @State busy: boolean = false;
   @State videoCount: number = 0;
+  @State isVideoMode: boolean = false;
+  @State fullscreen: boolean = false;
+  private xc: XComponentController = new XComponentController();
 
   private player: media.AVPlayer | null = null;
   private playFd: number = -1;
@@ -45,9 +49,8 @@ struct Index {
   }
 
   private refreshFiles(): void {
-    const all: string[] = listMedia(this.mediaDir());
-    this.files = all.filter((n: string) => isAudio(n));
-    this.videoCount = all.length - this.files.length;
+    this.files = listMedia(this.mediaDir());
+    this.videoCount = 0;
   }
 
   private startTimer(): void {
@@ -148,6 +151,39 @@ struct Index {
     this.bgInfo = '';
   }
 
+  private delay(ms: number): Promise<void> {
+    return new Promise<void>((resolve: () => void) => {
+      setTimeout(() => {
+        resolve();
+      }, ms);
+    });
+  }
+
+  private async waitSurface(timeoutMs: number): Promise<string> {
+    const start: number = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const sid: string = this.xc.getXComponentSurfaceId();
+      if (sid.length > 0) {
+        return sid;
+      }
+      await this.delay(50);
+    }
+    return '';
+  }
+
+  private async setFullscreen(on: boolean): Promise<void> {
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      const win: window.Window = await window.getLastWindow(ctx);
+      await win.setPreferredOrientation(window.Orientation.PORTRAIT);
+      await win.setWindowLayoutFullScreen(on);
+      this.fullscreen = on;
+    } catch (e) {
+      Log.warn('fullscreen failed');
+      this.fullscreen = on;
+    }
+  }
+
   private async loadAndPlay(name: string): Promise<void> {
     this.busy = true;
     this.closePlayer();
@@ -160,7 +196,9 @@ struct Index {
       p.on('stateChange', (state: string) => {
         this.playState = state;
         if (state === 'completed') {
-          this.next();
+          if (this.isAudioOnly(this.selected)) {
+            this.next();
+          }
         }
       });
       p.on('error', (err: BusinessError) => {
@@ -176,9 +214,21 @@ struct Index {
         throw new Error('player not initialized');
       }
       if (isVideo(name)) {
-        this.playState = 'video-unsupported';
-        Log.info('video deferred to M3: ' + name);
-        return;
+        if (this.fullscreen) {
+          await this.setFullscreen(false);
+        }
+        this.isVideoMode = true;
+        await this.delay(200);
+        const sid: string = await this.waitSurface(4000);
+        if (sid.length === 0) {
+          throw new Error('no surface');
+        }
+        p.surfaceId = sid;
+      } else {
+        if (this.fullscreen) {
+          await this.setFullscreen(false);
+        }
+        this.isVideoMode = false;
       }
       await p.prepare();
       this.durationMs = p.duration;
@@ -194,13 +244,6 @@ struct Index {
     this.busy = false;
   }
 
-  private delay(ms: number): Promise<void> {
-    return new Promise<void>((resolve: () => void) => {
-      setTimeout(() => {
-        resolve();
-      }, ms);
-    });
-  }
 
   private async waitInitialized(p: media.AVPlayer): Promise<boolean> {
     const start: number = Date.now();
@@ -322,6 +365,7 @@ struct Index {
 
   build() {
     Column() {
+      if (!this.fullscreen) {
       Row() {
         Column({ space: 2 }) {
           Text('媒体')
@@ -354,7 +398,34 @@ struct Index {
           })
       }
       .width('100%')
+      }
 
+      if (this.isVideoMode) {
+        Stack({ alignContent: Alignment.TopEnd }) {
+          XComponent({ id: 'videoSurface', type: 'surface', controller: this.xc })
+            .width('100%')
+            .height(this.fullscreen ? '100%' : 220)
+            .backgroundColor('#000000')
+            .onLoad(() => {
+              Log.info('surface ready id=' + this.xc.getXComponentSurfaceId());
+            })
+          Button(this.fullscreen ? '退出全屏' : '全屏')
+            .fontSize(11)
+            .height(34)
+            .margin({ top: this.fullscreen ? 52 : 8, right: 8 })
+            .backgroundColor('#B3223047')
+            .onClick(() => {
+              this.setFullscreen(!this.fullscreen);
+            })
+        }
+        .width('100%')
+        .height(this.fullscreen ? '100%' : 220)
+        .borderRadius(this.fullscreen ? 0 : 12)
+        .clip(true)
+        .margin({ top: this.fullscreen ? 0 : 12 })
+      }
+
+      if (!this.fullscreen) {
       Column({ space: 8 }) {
         Text(this.selected.length > 0 ? this.selected : '未选择曲目')
           .fontSize(16)
@@ -470,15 +541,16 @@ struct Index {
       .width('100%')
       .layoutWeight(1)
 
-      Text('支持 wav/mp3/m4a/flac/ogg/opus' + (this.videoCount > 0 ? ('；已隐藏 ' + this.videoCount + ' 个视频（M3 支持）') : ''))
+      Text('支持音频与视频（MP4/MKV/TS/HEVC）')
         .fontSize(10)
         .fontColor('#5E6E85')
         .width('100%')
         .margin({ top: 6 })
+      }
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 16, right: 16, top: 18, bottom: 12 })
+    .padding({ left: this.fullscreen ? 0 : 16, right: this.fullscreen ? 0 : 16, top: this.fullscreen ? 0 : 18, bottom: this.fullscreen ? 0 : 12 })
     .backgroundColor('#0B0F16')
   }
 }
