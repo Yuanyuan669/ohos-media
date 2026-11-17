@@ -65,3 +65,11 @@
   - `/vendor/lib64` 只有 `libomx_avcdec_hw_sprd`、`libomx_avcenc_hw_sprd` 等 H264 OMX，没有任何 HEVC OMX/codec2/解码 .so；
   - 结果：AVPlayer 找不到 HEVC 解码器，只播音轨/推进时间轴，surface 保持黑屏。
 - 修复路径：由 ROM/vendor 提供 HEVC 解码组件并在 codec_caps 注册（或移植软解到 media engine），应用层无解。
+
+
+## 2026-11-17 HEVC 应用内软解（原型可用）
+
+- 方案：libde265 静态库 + 自带 MP4 解复用（hvcC/stts/stsz/stco/stsc）→ YUV420→RGBA；ArkTS 用 PixelMap+Image 显示，AVPlayer 只播音频并提供时钟。
+- 实测 320x240 25fps：解析 125 帧；出画正常；渲染约 12.8fps。
+- 关键坑：原生 fopen 打不开 ArkTS filesDir 虚拟路径 → 传 fd（dup+fdopen）；沙箱文件/目录权限（目录要 770）；SDK 10→11 需卸载重装。
+- 详见 docs/HEVC-SOFTDECODE.md。

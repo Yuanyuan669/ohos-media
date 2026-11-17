@@ -1,5 +1,6 @@
 import media from '@ohos.multimedia.media';
 import fs from '@ohos.file.fs';
+import image from '@ohos.multimedia.image';
 import picker from '@ohos.file.picker';
 import avSession from '@ohos.multimedia.avsession';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
@@ -7,12 +8,21 @@ import wantAgent from '@ohos.app.ability.wantAgent';
 import common from '@ohos.app.ability.common';
 import Want from '@ohos.app.ability.Want';
 import window from '@ohos.window';
+import hevcdec from 'libhevcdec.so';
 import { BusinessError } from '@ohos.base';
 import { Log } from '../common/Logger';
 import { listMedia, isVideo, isAudio, extOf, humanMs, copyByFd } from '../common/MediaLib';
 
 const BUNDLE: string = 'com.local.media';
 const ABILITY: string = 'EntryAbility';
+
+interface SoftInfo {
+  width: number;
+  height: number;
+  fps: number;
+  durationMs: number;
+  frames: number;
+}
 
 @Entry
 @Component
@@ -28,6 +38,14 @@ struct Index {
   @State isVideoMode: boolean = false;
   @State fullscreen: boolean = false;
   private xc: XComponentController = new XComponentController();
+  @State softMode: boolean = false;
+  @State softPixel: image.PixelMap | null = null;
+  private softTimer: number = -1;
+  private softW: number = 0;
+  private softH: number = 0;
+  private softBusy: boolean = false;
+  private softTicks: number = 0;
+  private softStart: number = 0;
 
   private player: media.AVPlayer | null = null;
   private playFd: number = -1;
@@ -36,11 +54,12 @@ struct Index {
   private bgStarted: boolean = false;
 
   aboutToAppear(): void {
-    this.refreshFiles();
-  }
-
-  aboutToDisappear(): void {
-    this.stopTimer();
+    try {
+      Log.info('hevc module v=' + hevcdec.version());
+      this.refreshFiles();
+    } catch (e) {
+      Log.warn('hevc module load failed');
+    }
   }
 
   private mediaDir(): string {
@@ -49,7 +68,8 @@ struct Index {
   }
 
   private refreshFiles(): void {
-    this.files = listMedia(this.mediaDir());
+    const d: string = this.mediaDir();
+    this.files = listMedia(d);
     this.videoCount = 0;
   }
 
@@ -75,8 +95,67 @@ struct Index {
     }
   }
 
+  private startSoftTimer(): void {
+    this.stopSoftTimer();
+    this.softTimer = setInterval(() => {
+      if (!this.softMode || this.player === null || this.softW <= 0 || this.softBusy) {
+        return;
+      }
+      try {
+        const buf: ArrayBuffer | null = hevcdec.frameAt(this.positionMs) as ArrayBuffer | null;
+        if (buf === null) {
+          return;
+        }
+        const opt: image.InitializationOptions = {
+          size: { width: this.softW, height: this.softH },
+          pixelFormat: image.PixelMapFormat.RGBA_8888,
+          editable: false
+        };
+        this.softBusy = true;
+        image.createPixelMap(buf, opt).then((pm: image.PixelMap) => {
+          if (this.softPixel !== null) {
+            this.softPixel.release();
+          }
+            this.softPixel = pm;
+          this.softBusy = false;
+          if (this.softTicks === 0) {
+            this.softStart = Date.now();
+          }
+          this.softTicks++;
+          if (this.softTicks % 25 === 0) {
+            const dt = Date.now() - this.softStart;
+            Log.info('soft render fps ~' + (dt > 0 ? (this.softTicks * 1000 / dt).toFixed(1) : '0'));
+          }
+        }).catch(() => {
+          this.softBusy = false;
+        });
+      } catch (e) {
+      }
+    }, 80);
+  }
+
+  private stopSoftTimer(): void {
+    if (this.softTimer >= 0) {
+      clearInterval(this.softTimer);
+      this.softTimer = -1;
+    }
+  }
+
   private closePlayer(): void {
     this.stopTimer();
+    this.stopSoftTimer();
+    try {
+      hevcdec.close();
+    } catch (e) {
+    }
+    this.softMode = false;
+    if (this.softPixel !== null) {
+      try {
+        this.softPixel.release();
+      } catch (e) {
+      }
+      this.softPixel = null;
+    }
     if (this.player !== null) {
       try {
         this.player.release();
@@ -198,6 +277,8 @@ struct Index {
         if (state === 'completed') {
           if (this.isAudioOnly(this.selected)) {
             this.next();
+          } else if (this.softMode) {
+            this.stopSoftTimer();
           }
         }
       });
@@ -213,18 +294,43 @@ struct Index {
       if (!ready) {
         throw new Error('player not initialized');
       }
+      let soft: boolean = false;
       if (isVideo(name)) {
+        try {
+          const sf = fs.openSync(path, fs.OpenMode.READ_ONLY);
+          const meta: string = hevcdec.openFd(sf.fd) as string;
+          fs.closeSync(sf);
+          if (meta.length > 1) {
+            const mi: SoftInfo = JSON.parse(meta) as SoftInfo;
+            soft = mi.width > 0 && mi.height > 0;
+            if (soft) {
+              this.softMode = true;
+              this.softW = mi.width;
+              this.softH = mi.height;
+              Log.info('soft hevc ' + meta);
+            }
+          }
+        } catch (e) {
+          Log.warn('soft probe failed');
+        }
+        if (!soft) {
+          hevcdec.close();
+        }
         if (this.fullscreen) {
           await this.setFullscreen(false);
         }
         this.isVideoMode = true;
-        await this.delay(200);
-        const sid: string = await this.waitSurface(4000);
-        if (sid.length === 0) {
-          throw new Error('no surface');
+        if (!soft) {
+          await this.delay(200);
+          const sid: string = await this.waitSurface(4000);
+          if (sid.length === 0) {
+            throw new Error('no surface');
+          }
+          p.surfaceId = sid;
         }
-        p.surfaceId = sid;
       } else {
+        hevcdec.close();
+        this.softMode = false;
         if (this.fullscreen) {
           await this.setFullscreen(false);
         }
@@ -236,6 +342,9 @@ struct Index {
       await p.play();
       await this.ensureBackground();
       this.startTimer();
+      if (this.softMode) {
+        this.startSoftTimer();
+      }
     } catch (e) {
       const err = e as BusinessError;
       this.playState = 'error';
@@ -402,13 +511,38 @@ struct Index {
 
       if (this.isVideoMode) {
         Stack({ alignContent: Alignment.TopEnd }) {
-          XComponent({ id: 'videoSurface', type: 'surface', controller: this.xc })
-            .width('100%')
-            .height(this.fullscreen ? '100%' : 220)
-            .backgroundColor('#000000')
-            .onLoad(() => {
-              Log.info('surface ready id=' + this.xc.getXComponentSurfaceId());
-            })
+          if (this.softMode) {
+            if (this.softPixel !== null) {
+              Image(this.softPixel)
+                .width('100%')
+                .height('100%')
+                .objectFit(ImageFit.Contain)
+                .backgroundColor('#000000')
+            } else {
+              Column()
+                .width('100%')
+                .height('100%')
+                .backgroundColor('#000000')
+            }
+          } else {
+            XComponent({ id: 'videoSurface', type: 'surface', controller: this.xc })
+              .width('100%')
+              .height('100%')
+              .backgroundColor('#000000')
+              .onLoad(() => {
+                Log.info('surface ready id=' + this.xc.getXComponentSurfaceId());
+              })
+          }
+          if (this.softMode) {
+            Text('HEVC 软解')
+              .fontSize(10)
+              .fontColor('#CFE0FF')
+              .backgroundColor('#B3223047')
+              .borderRadius(6)
+              .padding({ left: 6, right: 6, top: 3, bottom: 3 })
+              .margin({ left: 8, bottom: 8 })
+              .align(Alignment.BottomStart)
+          }
           Button(this.fullscreen ? '退出全屏' : '全屏')
             .fontSize(11)
             .height(34)
@@ -541,7 +675,7 @@ struct Index {
       .width('100%')
       .layoutWeight(1)
 
-      Text('支持音频与 H264 视频（MP4/MKV/TS）；本机无 HEVC 解码器')
+      Text('支持音频与 H264；HEVC 走应用内软解（实验）')
         .fontSize(10)
         .fontColor('#5E6E85')
         .width('100%')
