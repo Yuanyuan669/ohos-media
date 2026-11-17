@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "媒体 M0 验证模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "媒体格式矩阵与播放验证"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "媒体"
+    },
+    {
+      "name": "reason_background_audio",
+      "value": "后台播放音频"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+node_modules/
+oh_modules/
+.hvigor/
+.cxx/
+build/
+entry/build/
+build-artifacts/
+.sign/
+*.hap
+*.app
+*.log
+
+# signing material must never leave the machine except via the CI secret store
+signing/*
+!signing/README.md
+
+# machine-local toolchain paths (see scripts/env.local.sh.example)
+scripts/env.local.sh
+
+# local photo drops
+assets/photos/*
+!assets/photos/.gitkeep
+!assets/photos/README.md
+
+.DS_Store
+.idea/
+*.iml
+local.properties
+watchdog-logs/
+
+# local verification artifacts
+docs/*.jpeg
+docs/*.json
+docs/hilog*.txt
+.keep
