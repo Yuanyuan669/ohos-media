@@ -541,7 +541,7 @@ struct Index {
       .width('100%')
       .layoutWeight(1)
 
-      Text('支持音频与视频（MP4/MKV/TS/HEVC）')
+      Text('支持音频与 H264 视频（MP4/MKV/TS）；本机无 HEVC 解码器')
         .fontSize(10)
         .fontColor('#5E6E85')
         .width('100%')
