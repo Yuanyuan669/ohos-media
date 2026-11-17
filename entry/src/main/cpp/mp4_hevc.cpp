@@ -1,7 +1,6 @@
 #include "mp4_hevc.h"
 
 #include <libde265/de265.h>
-#include <hilog/log.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -10,7 +9,6 @@
 
 namespace {
 
-#define HLOG(fmt, ...) OH_LOG_Print(LOG_APP, LOG_INFO, 0x3200, "hevcdec", fmt, ##__VA_ARGS__)
 
 struct VideoFile {
     FILE *fp = nullptr;
@@ -191,10 +189,8 @@ bool parseTrack(FILE *f, const Box &trak) {
     }
     uint32_t handler = 0;
     if (!readU32(f, hdlr.payload + 8, handler) || handler != 'vide') {
-        HLOG("not video handler %x", handler);
         return false;
     }
-    HLOG("video track found");
     Box mdhd;
     if (!findChild(f, mdia.payload, mdiaEnd, 'mdhd', mdhd)) {
         return false;
@@ -241,25 +237,19 @@ bool parseTrack(FILE *f, const Box &trak) {
         return false;
     }
     if (entry.type != 'hvc1' && entry.type != 'hev1') {
-        HLOG("entry type %x", entry.type);
         return false;
     }
-    HLOG("hvc entry %x", entry.type);
     uint16_t w = 0;
     uint16_t h = 0;
     readU16(f, entry.payload + 24, w);
     readU16(f, entry.payload + 26, h);
     if (w == 0 || h == 0) {
-        HLOG("bad size %dx%d", (int)w, (int)h);
         return false;
     }
-    HLOG("size %dx%d", (int)w, (int)h);
     Box hvcc;
     if (!findChild(f, entry.payload + 78, entry.start + entry.size, 'hvcC', hvcc)) {
-        HLOG("no hvcC");
         return false;
     }
-    HLOG("hvcC found");
     std::vector<std::vector<uint8_t>> params;
     if (!parseHvcC(f, hvcc, params)) {
         return false;
@@ -288,10 +278,8 @@ bool parseTrack(FILE *f, const Box &trak) {
         }
     }
     if (pts.empty()) {
-        HLOG("no stts pts");
         return false;
     }
-    HLOG("stts entries %u samples %d", sttsCount, (int)pts.size());
 
     Box stsz;
     if (!findChild(f, stbl.payload, stblEnd, 'stsz', stsz)) {
@@ -302,7 +290,6 @@ bool parseTrack(FILE *f, const Box &trak) {
     readU32(f, stsz.payload + 4, uniform);
     readU32(f, stsz.payload + 8, sampleCount);
     if (sampleCount == 0 || sampleCount > pts.size()) {
-        HLOG("bad sampleCount %u pts %d", sampleCount, (int)pts.size());
         return false;
     }
     std::vector<uint32_t> sizes(sampleCount, 0);
@@ -376,10 +363,8 @@ bool parseTrack(FILE *f, const Box &trak) {
         }
     }
     if (si == 0) {
-        HLOG("no samples mapped");
         return false;
     }
-    HLOG("samples mapped %u chunks %u", si, chunkCount);
     if (si < sampleCount) {
         sampleCount = si;
         sizes.resize(si);
@@ -407,7 +392,6 @@ bool parseFile(FILE *f, uint64_t total) {
             return false;
         }
         if (b.type == 'moov') {
-            HLOG("moov found");
             uint64_t o = b.payload;
             uint64_t end = b.start + b.size;
             while (o + 8 <= end) {
@@ -420,7 +404,6 @@ bool parseFile(FILE *f, uint64_t total) {
                 }
                 o = c.start + c.size;
             }
-            HLOG("no trak parsed");
             return false;
         }
         off = b.start + b.size;
@@ -604,10 +587,8 @@ bool hevc_open(const char *path) {
     g.fp = fopen(path, "rb");
     if (g.fp == nullptr) {
         g_err = "fopen";
-        HLOG("fopen failed %s", path);
         return false;
     }
-    HLOG("fopen ok %s", path);
     int64_t total = fileSize(g.fp);
     if (total <= 0 || !parseFile(g.fp, (uint64_t)total)) {
         g_err = "parse";
