@@ -54,3 +54,14 @@
 - 所有媒体复制进应用沙箱 `filesDir/media`，不依赖 picker URI 持久化（`FILE_ACCESS_PERSIST` 为 system_basic）。
 - 后台播放必须 AVSession + `audioPlayback`，否则约 1.1 s 被系统暂停。
 - 不引入 ohpm 三方库；测试素材用 ffmpeg 生成放 `samples/`。
+
+
+### HEVC 不支持属于哪一层？
+
+- **不是 API 层**：API 11 的 AVCodec/AVPlayer 本身支持 HEVC，运行时按 codec 能力发现解码器。
+- **不是“纯硬件”**：SoC 是否具备 HEVC 硬解无法从系统内确认；关键证据是系统镜像没把解码器暴露出来。
+- **是系统镜像 + 闭源 vendor 组件缺失**：
+  - `/system/etc/codec/codec_caps.xml`（OH 软件/注册解码器清单）只有 h264/h263/mpeg2/mpeg4，无 HEVC；
+  - `/vendor/lib64` 只有 `libomx_avcdec_hw_sprd`、`libomx_avcenc_hw_sprd` 等 H264 OMX，没有任何 HEVC OMX/codec2/解码 .so；
+  - 结果：AVPlayer 找不到 HEVC 解码器，只播音轨/推进时间轴，surface 保持黑屏。
+- 修复路径：由 ROM/vendor 提供 HEVC 解码组件并在 codec_caps 注册（或移植软解到 media engine），应用层无解。
