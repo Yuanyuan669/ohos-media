@@ -8,6 +8,7 @@ import wantAgent from '@ohos.app.ability.wantAgent';
 import common from '@ohos.app.ability.common';
 import Want from '@ohos.app.ability.Want';
 import window from '@ohos.window';
+import display from '@ohos.display';
 import hevcdec from 'libhevcdec.so';
 import { BusinessError } from '@ohos.base';
 import { Log } from '../common/Logger';
@@ -37,6 +38,8 @@ struct Index {
   @State videoCount: number = 0;
   @State isVideoMode: boolean = false;
   @State fullscreen: boolean = false;
+  @State landW: number = 0;
+  @State landH: number = 0;
   @State boxW: number = 0;
   @State boxH: number = 0;
   private videoW: number = 0;
@@ -263,21 +266,19 @@ struct Index {
       if (on) {
         await win.setWindowSystemBarEnable([]);
         win.setWindowBackgroundColor('#000000');
-        const rect = win.getWindowProperties().windowRect;
-        const sw = px2vp(rect.width);
-        const sh = px2vp(rect.height);
-        let w = sw;
-        let h = sh;
+        const dis = display.getDefaultDisplaySync();
+        this.landW = px2vp(dis.height);
+        this.landH = px2vp(dis.width);
+        let w = this.landW;
+        let h = this.landH;
         const vw = this.softMode ? this.softW : this.videoW;
         const vh = this.softMode ? this.softH : this.videoH;
         if (vw > 0 && vh > 0) {
           const ar = vw / vh;
-          if (sw / sh > ar) {
-            h = sh;
-            w = sh * ar;
+          if (w / h > ar) {
+            w = h * ar;
           } else {
-            w = sw;
-            h = sw / ar;
+            h = w / ar;
           }
         }
         this.boxW = w;
@@ -286,7 +287,7 @@ struct Index {
         if (!this.softMode) {
           this.xc.setXComponentSurfaceSize({ surfaceWidth: vp2px(w), surfaceHeight: vp2px(h) });
         }
-        Log.info('fit box ' + Math.round(w) + 'x' + Math.round(h));
+        Log.info('pseudo landscape box ' + Math.round(w) + 'x' + Math.round(h));
       } else {
         await win.setWindowSystemBarEnable(['status', 'navigation']);
       }
@@ -600,6 +601,7 @@ struct Index {
           }
           .width(this.fullscreen ? this.boxW : '100%')
           .height(this.fullscreen ? this.boxH : 220)
+          .rotate({ angle: this.fullscreen ? 90 : 0 })
           .borderRadius(this.fullscreen ? 0 : 12)
           .clip(true)
         }

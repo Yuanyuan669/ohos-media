@@ -42,11 +42,12 @@
 3. **视频自动下一首会跳到音频**：完成回调统一 `next()` 导致全屏时已切走；改为仅 `isAudioOnly(selected)` 时自动下一首。
 4. `setPreferredOrientation` 不要与 `setWindowLayoutFullScreen` 混用做伪横屏；本机行为不可靠。
 
-## 2026-11-18 视频全屏按横屏比例播放（不转系统）
-- 根因：LHT16 的 RenderService 屏幕始终是 1080x2408；`setPreferredOrientation(LANDSCAPE)` 只把应用窗口改成 2408x1080，显示本身不旋转，结果窗口左上角半屏、右侧露出桌面。因此不再强制系统横屏。
-- 方案：保持 PORTRAIT，`setWindowLayoutFullScreen(true)` + 隐藏 status/navigation；视频按 `p.width/p.height` 计算宽高比，在竖屏全屏内做 FIT，不拉伸、不旋转 UI。
-- XComponent surface 用 `setXComponentSurfaceSize` 显式设成 FIT 盒子像素尺寸；退出全屏恢复系统栏和竖屏列表。
-- 实测素材：Big Buck Bunny 1920x1080、10s、60fps（CC BY 3.0，test-videos.co.uk）。全屏后视频区 **1080x608**，屏幕 1080x2408，上下黑边各约 **900px**；播放、全屏、退出均正常。
+## 2026-11-18 视频全屏横屏（伪横屏）
+- 根因：LHT16 的 RenderService 屏幕始终是 1080x2408；`setPreferredOrientation(LANDSCAPE)` 只把应用窗口改成 2408x1080，显示本身不旋转，结果窗口左上角半屏、右侧露出桌面。
+- 方案：保持 PORTRAIT，`setWindowLayoutFullScreen(true)` + 隐藏 status/navigation；按显示高度/宽度计算横屏画布，把视频层旋转 90° 居中。
+- 按 `p.width/p.height` 计算视频宽高比，盒子做 FIT（4:3 视频在 2408x1080 中显示为 1440x1080，两侧黑边）；XComponent surface 用 `setXComponentSurfaceSize` 显式设成盒子像素尺寸。
+- 退出全屏恢复 status/navigation、取消旋转、回到竖屏列表。
+- 实测：Big Buck Bunny 1920x1080 60fps，全屏后按 90° 伪横屏显示；竖屏截图视频区 1080x1920，上下黑边约 243/240px（对应物理横屏时左右各约 244px）。播放、全屏、退出均正常。需用户把设备横过来观看，状态栏仍按竖屏方向显示。
 
 ## 当前状态（M3 收尾）
 
