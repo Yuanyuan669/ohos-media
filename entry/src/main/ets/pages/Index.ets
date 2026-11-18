@@ -42,6 +42,7 @@ struct Index {
   @State landH: number = 0;
   @State boxW: number = 0;
   @State boxH: number = 0;
+  @State fillMode: boolean = true;
   private videoW: number = 0;
   private videoH: number = 0;
   private xc: XComponentController = new XComponentController();
@@ -67,6 +68,14 @@ struct Index {
     } catch (e) {
       Log.warn('hevc module load failed');
     }
+  }
+
+  onBackPress(): boolean {
+    if (this.fullscreen) {
+      this.setFullscreen(false);
+      return true;
+    }
+    return false;
   }
 
   private mediaDir(): string {
@@ -257,6 +266,45 @@ struct Index {
     return '';
   }
 
+  private async layoutFullscreenBox(win: window.Window): Promise<void> {
+    const dis = display.getDefaultDisplaySync();
+    this.landW = px2vp(dis.height);
+    this.landH = px2vp(dis.width);
+    let w = this.landW;
+    let h = this.landH;
+    const vw = this.softMode ? this.softW : this.videoW;
+    const vh = this.softMode ? this.softH : this.videoH;
+    if (!this.fillMode && vw > 0 && vh > 0) {
+      const ar = vw / vh;
+      if (w / h > ar) {
+        w = h * ar;
+      } else {
+        h = w / ar;
+      }
+    }
+    this.boxW = w;
+    this.boxH = h;
+    if (this.player !== null) {
+      this.player.videoScaleType = this.fillMode
+        ? media.VideoScaleType.VIDEO_SCALE_TYPE_FIT_CROP
+        : media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
+    }
+    await this.delay(200);
+    if (!this.softMode) {
+      this.xc.setXComponentSurfaceSize({ surfaceWidth: vp2px(w), surfaceHeight: vp2px(h) });
+    }
+    Log.info('fullscreen box ' + Math.round(w) + 'x' + Math.round(h) + ' fill=' + this.fillMode);
+  }
+
+  private async toggleFill(): Promise<void> {
+    this.fillMode = !this.fillMode;
+    if (this.fullscreen) {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      const win: window.Window = await window.getLastWindow(ctx);
+      await this.layoutFullscreenBox(win);
+    }
+  }
+
   private async setFullscreen(on: boolean): Promise<void> {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
@@ -266,30 +314,15 @@ struct Index {
       if (on) {
         await win.setWindowSystemBarEnable([]);
         win.setWindowBackgroundColor('#000000');
-        const dis = display.getDefaultDisplaySync();
-        this.landW = px2vp(dis.height);
-        this.landH = px2vp(dis.width);
-        let w = this.landW;
-        let h = this.landH;
-        const vw = this.softMode ? this.softW : this.videoW;
-        const vh = this.softMode ? this.softH : this.videoH;
-        if (vw > 0 && vh > 0) {
-          const ar = vw / vh;
-          if (w / h > ar) {
-            w = h * ar;
-          } else {
-            h = w / ar;
-          }
-        }
-        this.boxW = w;
-        this.boxH = h;
-        await this.delay(200);
-        if (!this.softMode) {
-          this.xc.setXComponentSurfaceSize({ surfaceWidth: vp2px(w), surfaceHeight: vp2px(h) });
-        }
-        Log.info('pseudo landscape box ' + Math.round(w) + 'x' + Math.round(h));
+        await this.layoutFullscreenBox(win);
       } else {
         await win.setWindowSystemBarEnable(['status', 'navigation']);
+        if (this.player !== null) {
+          this.player.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
+        }
+        const rect = win.getWindowProperties().windowRect;
+        await this.delay(200);
+        this.xc.setXComponentSurfaceSize({ surfaceWidth: rect.width, surfaceHeight: vp2px(220) });
       }
       this.fullscreen = on;
     } catch (e) {
@@ -563,7 +596,7 @@ struct Index {
                 Image(this.softPixel)
                   .width('100%')
                   .height('100%')
-                  .objectFit(ImageFit.Contain)
+                  .objectFit(this.fullscreen && this.fillMode ? ImageFit.Cover : ImageFit.Contain)
                   .backgroundColor('#000000')
               } else {
                 Column()
@@ -590,20 +623,55 @@ struct Index {
                 .margin({ left: 8, bottom: 8 })
                 .align(Alignment.BottomStart)
             }
-            Button(this.fullscreen ? '退出全屏' : '全屏')
-              .fontSize(11)
-              .height(34)
-              .margin({ top: this.fullscreen ? 52 : 8, right: 8 })
-              .backgroundColor('#B3223047')
-              .onClick(() => {
-                this.setFullscreen(!this.fullscreen);
-              })
           }
           .width(this.fullscreen ? this.boxW : '100%')
           .height(this.fullscreen ? this.boxH : 220)
           .rotate({ angle: this.fullscreen ? 90 : 0 })
           .borderRadius(this.fullscreen ? 0 : 12)
           .clip(true)
+
+          if (this.fullscreen) {
+            Row({ space: 8 }) {
+              Button(this.fillMode ? '完整画面' : '铺满')
+                .fontSize(12)
+                .height(38)
+                .backgroundColor('#CC223047')
+                .onClick(() => {
+                  this.toggleFill();
+                })
+              Button('退出全屏')
+                .fontSize(12)
+                .height(38)
+                .backgroundColor('#CC223047')
+                .onClick(() => {
+                  this.setFullscreen(false);
+                })
+            }
+            .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+            .backgroundColor('#66000000')
+            .borderRadius(12)
+            .align(Alignment.BottomEnd)
+            .margin({ right: 14, bottom: 20 })
+          } else {
+            Row({ space: 8 }) {
+              Button(this.fillMode ? '全屏:铺满' : '全屏:完整')
+                .fontSize(11)
+                .height(34)
+                .backgroundColor('#B3223047')
+                .onClick(() => {
+                  this.fillMode = !this.fillMode;
+                })
+              Button('全屏')
+                .fontSize(11)
+                .height(34)
+                .backgroundColor('#B3223047')
+                .onClick(() => {
+                  this.setFullscreen(true);
+                })
+            }
+            .align(Alignment.TopEnd)
+            .margin({ top: 8, right: 8 })
+          }
         }
         .width('100%')
         .height(this.fullscreen ? '100%' : 220)
@@ -741,3 +809,4 @@ struct Index {
     .backgroundColor('#0B0F16')
   }
 }
+

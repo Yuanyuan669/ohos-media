@@ -44,10 +44,10 @@
 
 ## 2026-11-18 视频全屏横屏（伪横屏）
 - 根因：LHT16 的 RenderService 屏幕始终是 1080x2408；`setPreferredOrientation(LANDSCAPE)` 只把应用窗口改成 2408x1080，显示本身不旋转，结果窗口左上角半屏、右侧露出桌面。
-- 方案：保持 PORTRAIT，`setWindowLayoutFullScreen(true)` + 隐藏 status/navigation；按显示高度/宽度计算横屏画布，把视频层旋转 90° 居中。
-- 按 `p.width/p.height` 计算视频宽高比，盒子做 FIT（4:3 视频在 2408x1080 中显示为 1440x1080，两侧黑边）；XComponent surface 用 `setXComponentSurfaceSize` 显式设成盒子像素尺寸。
-- 退出全屏恢复 status/navigation、取消旋转、回到竖屏列表。
-- 实测：Big Buck Bunny 1920x1080 60fps，全屏后按 90° 伪横屏显示；竖屏截图视频区 1080x1920，上下黑边约 243/240px（对应物理横屏时左右各约 244px）。播放、全屏、退出均正常。需用户把设备横过来观看，状态栏仍按竖屏方向显示。
+- 方案：保持 PORTRAIT，`setWindowLayoutFullScreen(true)` + 隐藏 status/navigation；按显示高度/宽度计算 2408x1080 横屏画布，把视频层旋转 90° 居中。
+- 两种全屏画面模式，默认「铺满」：铺满用 `VIDEO_SCALE_TYPE_FIT_CROP` 填满画布，16:9 内容左右各裁约 244px，无黑边；完整画面用 FIT，保留全画面，16:9 左右各约 244px 黑边。
+- XComponent surface 用 `setXComponentSurfaceSize` 按当前模式显式设置；退出全屏切回 FIT、恢复 status/navigation 和竖屏列表，返回键也可退出全屏。
+- 实测：Big Buck Bunny 1920x1080 60fps，铺满模式全屏无黑边且画面裁切正常；完整画面模式竖屏截图视频区 1080x1920，上下黑边约 243/240px（对应物理横屏左右各约 244px）。播放、模式切换、退出均正常。需用户把设备横过来观看。
 
 ## 当前状态（M3 收尾）
 
