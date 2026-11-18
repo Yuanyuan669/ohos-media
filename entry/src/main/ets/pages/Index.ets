@@ -8,6 +8,7 @@ import wantAgent from '@ohos.app.ability.wantAgent';
 import common from '@ohos.app.ability.common';
 import Want from '@ohos.app.ability.Want';
 import window from '@ohos.window';
+import display from '@ohos.display';
 import hevcdec from 'libhevcdec.so';
 import { BusinessError } from '@ohos.base';
 import { Log } from '../common/Logger';
@@ -37,6 +38,12 @@ struct Index {
   @State videoCount: number = 0;
   @State isVideoMode: boolean = false;
   @State fullscreen: boolean = false;
+  @State landW: number = 0;
+  @State landH: number = 0;
+  @State boxW: number = 0;
+  @State boxH: number = 0;
+  private videoW: number = 0;
+  private videoH: number = 0;
   private xc: XComponentController = new XComponentController();
   @State softMode: boolean = false;
   @State softPixel: image.PixelMap | null = null;
@@ -256,9 +263,37 @@ struct Index {
       const win: window.Window = await window.getLastWindow(ctx);
       await win.setPreferredOrientation(window.Orientation.PORTRAIT);
       await win.setWindowLayoutFullScreen(on);
+      if (on) {
+        await win.setWindowSystemBarEnable([]);
+        win.setWindowBackgroundColor('#000000');
+        const dis = display.getDefaultDisplaySync();
+        this.landW = px2vp(dis.height);
+        this.landH = px2vp(dis.width);
+        let w = this.landW;
+        let h = this.landH;
+        const vw = this.softMode ? this.softW : this.videoW;
+        const vh = this.softMode ? this.softH : this.videoH;
+        if (vw > 0 && vh > 0) {
+          const ar = vw / vh;
+          if (w / h > ar) {
+            w = h * ar;
+          } else {
+            h = w / ar;
+          }
+        }
+        this.boxW = w;
+        this.boxH = h;
+        await this.delay(200);
+        if (!this.softMode) {
+          this.xc.setXComponentSurfaceSize({ surfaceWidth: vp2px(w), surfaceHeight: vp2px(h) });
+        }
+        Log.info('pseudo landscape box ' + Math.round(w) + 'x' + Math.round(h));
+      } else {
+        await win.setWindowSystemBarEnable(['status', 'navigation']);
+      }
       this.fullscreen = on;
     } catch (e) {
-      Log.warn('fullscreen failed');
+      Log.warn('fullscreen failed ' + JSON.stringify(e));
       this.fullscreen = on;
     }
   }
@@ -337,6 +372,17 @@ struct Index {
         this.isVideoMode = false;
       }
       await p.prepare();
+      if (isVideo(name)) {
+        p.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
+        if (this.softMode) {
+          this.videoW = this.softW;
+          this.videoH = this.softH;
+        } else if (p.width > 0 && p.height > 0) {
+          this.videoW = p.width;
+          this.videoH = p.height;
+        }
+        Log.info('video size ' + this.videoW + 'x' + this.videoH);
+      }
       this.durationMs = p.duration;
       await this.ensureSession();
       await p.play();
@@ -510,51 +556,58 @@ struct Index {
       }
 
       if (this.isVideoMode) {
-        Stack({ alignContent: Alignment.TopEnd }) {
-          if (this.softMode) {
-            if (this.softPixel !== null) {
-              Image(this.softPixel)
-                .width('100%')
-                .height('100%')
-                .objectFit(ImageFit.Contain)
-                .backgroundColor('#000000')
+        Stack() {
+          Stack({ alignContent: Alignment.TopEnd }) {
+            if (this.softMode) {
+              if (this.softPixel !== null) {
+                Image(this.softPixel)
+                  .width('100%')
+                  .height('100%')
+                  .objectFit(ImageFit.Contain)
+                  .backgroundColor('#000000')
+              } else {
+                Column()
+                  .width('100%')
+                  .height('100%')
+                  .backgroundColor('#000000')
+              }
             } else {
-              Column()
+              XComponent({ id: 'videoSurface', type: 'surface', controller: this.xc })
                 .width('100%')
                 .height('100%')
                 .backgroundColor('#000000')
+                .onLoad(() => {
+                  Log.info('surface ready id=' + this.xc.getXComponentSurfaceId());
+                })
             }
-          } else {
-            XComponent({ id: 'videoSurface', type: 'surface', controller: this.xc })
-              .width('100%')
-              .height('100%')
-              .backgroundColor('#000000')
-              .onLoad(() => {
-                Log.info('surface ready id=' + this.xc.getXComponentSurfaceId());
+            if (this.softMode) {
+              Text('HEVC 软解')
+                .fontSize(10)
+                .fontColor('#CFE0FF')
+                .backgroundColor('#B3223047')
+                .borderRadius(6)
+                .padding({ left: 6, right: 6, top: 3, bottom: 3 })
+                .margin({ left: 8, bottom: 8 })
+                .align(Alignment.BottomStart)
+            }
+            Button(this.fullscreen ? '退出全屏' : '全屏')
+              .fontSize(11)
+              .height(34)
+              .margin({ top: this.fullscreen ? 52 : 8, right: 8 })
+              .backgroundColor('#B3223047')
+              .onClick(() => {
+                this.setFullscreen(!this.fullscreen);
               })
           }
-          if (this.softMode) {
-            Text('HEVC 软解')
-              .fontSize(10)
-              .fontColor('#CFE0FF')
-              .backgroundColor('#B3223047')
-              .borderRadius(6)
-              .padding({ left: 6, right: 6, top: 3, bottom: 3 })
-              .margin({ left: 8, bottom: 8 })
-              .align(Alignment.BottomStart)
-          }
-          Button(this.fullscreen ? '退出全屏' : '全屏')
-            .fontSize(11)
-            .height(34)
-            .margin({ top: this.fullscreen ? 52 : 8, right: 8 })
-            .backgroundColor('#B3223047')
-            .onClick(() => {
-              this.setFullscreen(!this.fullscreen);
-            })
+          .width(this.fullscreen ? this.boxW : '100%')
+          .height(this.fullscreen ? this.boxH : 220)
+          .rotate({ angle: this.fullscreen ? 90 : 0 })
+          .borderRadius(this.fullscreen ? 0 : 12)
+          .clip(true)
         }
         .width('100%')
         .height(this.fullscreen ? '100%' : 220)
-        .borderRadius(this.fullscreen ? 0 : 12)
+        .alignContent(Alignment.Center)
         .clip(true)
         .margin({ top: this.fullscreen ? 0 : 12 })
       }

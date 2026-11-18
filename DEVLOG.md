@@ -33,7 +33,7 @@
   - H264 MP4：正常出画（纯蓝测试帧）。
   - MKV / TS：可播放（M0 已验证解码，本轮未逐一截图）。
   - **HEVC 320x240：进度/状态正常但画面全黑**。根因已确认：设备 `codec_caps.xml` 无 HEVC 解码器（仅 h264/h263/mpeg2/mpeg4），且无 HEVC 解码库；**本机不支持 HEVC**，应用层无法修复。M0 的“HEVC pass”是误判。
-  - 全屏横屏：`setPreferredOrientation(LANDSCAPE)` 在 LHT16 上窗口不跟随旋转，变成左上角半屏（右侧露出桌面），已放弃强制横屏；横屏需用户旋转设备或另做窗口方案。
+  - 全屏横屏：`setPreferredOrientation(LANDSCAPE)` 在 LHT16 上只改窗口、不改显示，变成左上角半屏；已改为应用内伪横屏，见下方 2026-11-18 记录。
 
 ## 踩坑（M3）
 
@@ -42,11 +42,18 @@
 3. **视频自动下一首会跳到音频**：完成回调统一 `next()` 导致全屏时已切走；改为仅 `isAudioOnly(selected)` 时自动下一首。
 4. `setPreferredOrientation` 不要与 `setWindowLayoutFullScreen` 混用做伪横屏；本机行为不可靠。
 
+## 2026-11-18 视频全屏横屏（伪横屏）
+- 根因：LHT16 的 RenderService 屏幕始终是 1080x2408；`setPreferredOrientation(LANDSCAPE)` 只把应用窗口改成 2408x1080，显示本身不旋转，结果窗口左上角半屏、右侧露出桌面。
+- 方案：保持 PORTRAIT，`setWindowLayoutFullScreen(true)` + 隐藏 status/navigation；按显示高度/宽度计算横屏画布，把视频层旋转 90° 居中。
+- 按 `p.width/p.height` 计算视频宽高比，盒子做 FIT（4:3 视频在 2408x1080 中显示为 1440x1080，两侧黑边）；XComponent surface 用 `setXComponentSurfaceSize` 显式设成盒子像素尺寸。
+- 退出全屏恢复 status/navigation、取消旋转、回到竖屏列表。
+- 实测：320x240 H264 全屏后旋转 90° 可满屏横向播放，黑边正确；退出后列表和输入正常。需用户把设备横过来观看，状态栏仍按竖屏方向显示。
+
 ## 当前状态（M3 收尾）
 
 - M2 已推送 `fca73b1`；M3 代码与本文档待提交。
 - HEVC 结论：系统镜像无解码器，不再投入；UI 文案改为“支持音频与 H264 视频”。
-- 下一步：真机旋转横屏验证；手势（双击暂停、亮度/音量）；音频焦点与耳机切换。
+- 下一步：手势（双击暂停、亮度/音量）；音频焦点与耳机切换。
 
 
 ## 设计约定
